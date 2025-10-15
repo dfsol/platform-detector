@@ -1,0 +1,66 @@
+{
+  "name": "@dfsol/platform-detector",
+  "version": "0.0.1",
+  "description": "Universal platform detector for web, PWA, Telegram Mini Apps, and native mobile applications",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte/index.d.ts",
+      "svelte": "./dist/svelte/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && mkdir -p dist/svelte && cp src/svelte/*.svelte dist/svelte/ && cp src/svelte/*.ts dist/svelte/",
+    "dev": "tsc --watch",
+    "prepare": "bun run build",
+    "prepublishOnly": "bun run build",
+    "postinstall": "bun run build || true"
+  },
+  "keywords": [
+    "platform",
+    "detector",
+    "pwa",
+    "telegram",
+    "tma",
+    "capacitor",
+    "mobile",
+    "ios",
+    "android",
+    "web",
+    "device-detection"
+  ],
+  "author": "DFSOL",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dfsol/platform-detector"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "svelte": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "svelte": "^5.39.5",
+    "typescript": "^5.9.2"
+  }
+}
