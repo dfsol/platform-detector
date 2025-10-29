@@ -5,8 +5,23 @@ import type {
 	DeviceType,
 	DomainMode,
 	PlatformDetectorOptions,
-	TMAAvailability
+	TMAAvailability,
+	CapacitorInfo,
+	TelegramInfo,
+	TelegramPlatform,
+	TelegramSDKSource,
+	ScreenInfo
 } from './types.js';
+import { getTelegramWebApp } from './telegram-sdk.js';
+import {
+	isTmaJsSdkAvailable,
+	isTelegramViaTmaJs,
+	getTelegramPlatformFromTmaJs,
+	getTelegramInitDataFromTmaJs,
+	getViewportFromTmaJs,
+	getThemeParamsFromTmaJs,
+	getTmaJsSdk
+} from './tma-sdk.js';
 
 /**
  * Detects the current platform and environment
@@ -35,15 +50,24 @@ export class PlatformDetector {
 		const isNative = this.detectNative();
 		const isTelegram = this.detectTelegram();
 		const isPWA = this.detectPWA();
+		const isTWA = this.detectTWA();
+
+		// Get detailed info from native APIs
+		const capacitor = this.getCapacitorInfo();
+		const telegram = this.getTelegramInfo();
 
 		// Determine primary platform type
 		let type: PlatformType = 'web';
-		if (isNative) type = 'native';
+		if (isNative && capacitor?.isNativePlatform) type = 'native';
 		else if (isTelegram) type = 'tma';
+		else if (isTWA) type = 'twa';
 		else if (isPWA) type = 'pwa';
 
 		// Check if TMA warning should be shown
 		const shouldShowTMAWarning = domainMode === 'tma' && !isTelegram;
+
+		// Get screen info
+		const screen = this.getScreenInfo();
 
 		const info: PlatformInfo = {
 			type,
@@ -51,6 +75,7 @@ export class PlatformDetector {
 			device,
 			domainMode,
 			isPWA,
+			isTWA,
 			isTelegram,
 			isNative,
 			isWeb: !isNative && !isTelegram,
@@ -61,8 +86,12 @@ export class PlatformDetector {
 			isMacOS: os === 'macos',
 			isWindows: os === 'windows',
 			isLinux: os === 'linux',
+			isChromeOS: os === 'chromeos',
 			userAgent,
-			shouldShowTMAWarning
+			shouldShowTMAWarning,
+			screen,
+			capacitor,
+			telegram
 		};
 
 		if (this.options.debug) {
@@ -83,6 +112,7 @@ export class PlatformDetector {
 		if (/android/.test(ua)) return 'android';
 
 		// Desktop OS detection
+		if (/cros/.test(ua)) return 'chromeos';
 		if (/mac os x|macintosh/.test(ua)) return 'macos';
 		if (/windows|win32|win64/.test(ua)) return 'windows';
 		if (/linux|x11/.test(ua) && !/android/.test(ua)) return 'linux';
@@ -143,34 +173,52 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Detect if running in Telegram Mini App
+	 * Detect if running in Telegram Mini App with strict checks
+	 * Supports both native Telegram SDK and @tma.js SDK
 	 */
 	private detectTelegram(): boolean {
 		if (typeof window === 'undefined') return false;
 
-		// Use provided Telegram object if available
+		// Priority 1: Check @tma.js SDK (more reliable)
+		if (isTelegramViaTmaJs()) {
+			return true;
+		}
+
+		// Priority 2: Use provided Telegram object if available
 		if (this.options.telegramWebApp) {
-			return true;
+			return this.validateTelegramWebApp(this.options.telegramWebApp);
 		}
 
-		// Check for Telegram WebApp
-		if ('Telegram' in window && (window as any).Telegram?.WebApp) {
-			return true;
+		// Priority 3: Check for native Telegram WebApp
+		const webApp = getTelegramWebApp();
+		if (!webApp) return false;
+
+		return this.validateTelegramWebApp(webApp);
+	}
+
+	/**
+	 * Validate Telegram WebApp with strict checks
+	 */
+	private validateTelegramWebApp(webApp: any): boolean {
+		// WebApp must exist and have a version
+		if (!webApp || !webApp.version) {
+			return false;
 		}
 
-		// Check for tgWebAppData in URL
-		const urlParams = new URLSearchParams(window.location.search);
-		if (urlParams.has('tgWebAppData')) {
-			return true;
-		}
+		// CRITICAL: Check if we have actual Telegram init data
+		const hasInitData = !!(
+			webApp.initData ||
+			(webApp.initDataUnsafe && Object.keys(webApp.initDataUnsafe).length > 0)
+		);
 
-		// Check for Telegram user agent
-		const userAgent = navigator.userAgent.toLowerCase();
-		if (userAgent.includes('telegram')) {
-			return true;
-		}
+		// Check for platform
+		const hasPlatform = !!webApp.platform && webApp.platform !== 'unknown';
 
-		return false;
+		// Check for colorScheme
+		const hasColorScheme = !!webApp.colorScheme;
+
+		// Must have ALL these indicators
+		return hasInitData && hasPlatform && hasColorScheme;
 	}
 
 	/**
@@ -184,17 +232,164 @@ export class PlatformDetector {
 			return true;
 		}
 
+		// Check minimal-ui mode
+		if (window.matchMedia('(display-mode: minimal-ui)').matches) {
+			return true;
+		}
+
 		// iOS Safari standalone mode
 		if ('standalone' in navigator && (navigator as any).standalone) {
 			return true;
 		}
 
-		// Android Chrome PWA
+		return false;
+	}
+
+	/**
+	 * Detect if running as TWA (Trusted Web Activity on Android)
+	 */
+	private detectTWA(): boolean {
+		if (typeof window === 'undefined') return false;
+
+		// TWA is identified by Android app referrer
 		if (document.referrer.includes('android-app://')) {
 			return true;
 		}
 
+		// Check for TWA-specific display mode with Android UA
+		const userAgent = navigator.userAgent.toLowerCase();
+		if (
+			userAgent.includes('android') &&
+			window.matchMedia('(display-mode: standalone)').matches
+		) {
+			// Could be TWA or PWA, check for TWA-specific indicators
+			// TWA doesn't have Service Worker registered in some cases
+			if (!navigator.serviceWorker) {
+				return true;
+			}
+		}
+
 		return false;
+	}
+
+	/**
+	 * Get detailed Capacitor information from native API
+	 */
+	private getCapacitorInfo(): CapacitorInfo | undefined {
+		if (typeof window === 'undefined' || !('Capacitor' in window)) {
+			return undefined;
+		}
+
+		const Capacitor = (window as any).Capacitor;
+		const isNativePlatform = Capacitor.isNativePlatform
+			? Capacitor.isNativePlatform()
+			: false;
+		const platformName = Capacitor.getPlatform ? Capacitor.getPlatform() : 'unknown';
+
+		let platform: 'ios' | 'android' | 'web' | 'unknown' = 'unknown';
+		if (platformName === 'ios') platform = 'ios';
+		else if (platformName === 'android') platform = 'android';
+		else if (platformName === 'web') platform = 'web';
+
+		return {
+			isNativePlatform,
+			platform,
+			isPluginAvailable: (plugin: string) => {
+				return Capacitor.isPluginAvailable ? Capacitor.isPluginAvailable(plugin) : false;
+			},
+			nativeVersion: Capacitor.nativeVersion
+		};
+	}
+
+	/**
+	 * Get detailed Telegram information from WebApp SDK
+	 * Supports both native Telegram SDK and @tma.js SDK
+	 */
+	private getTelegramInfo(): TelegramInfo | undefined {
+		let sdkSource: TelegramSDKSource = 'unknown';
+
+		// Priority 1: Try @tma.js SDK
+		if (isTmaJsSdkAvailable()) {
+			const info = this.getTelegramInfoFromTmaJs();
+			if (info) return info;
+		}
+
+		// Priority 2: Try native Telegram WebApp
+		const webApp = this.options.telegramWebApp || getTelegramWebApp();
+		if (!webApp) {
+			return undefined;
+		}
+
+		sdkSource = 'native';
+
+		return {
+			platform: (webApp.platform || 'unknown') as TelegramPlatform,
+			version: webApp.version || '0.0',
+			sdkSource,
+			colorScheme: webApp.colorScheme || 'dark',
+			viewportHeight: webApp.viewportHeight || (typeof window !== 'undefined' ? window.innerHeight : 0),
+			viewportStableHeight: webApp.viewportStableHeight || (typeof window !== 'undefined' ? window.innerHeight : 0),
+			isExpanded: webApp.isExpanded || false,
+			isClosingConfirmationEnabled: webApp.isClosingConfirmationEnabled || false,
+			headerColor: webApp.headerColor || '#000000',
+			backgroundColor: webApp.backgroundColor || '#ffffff',
+			safeAreaInsetTop: webApp.safeAreaInset?.top || 0,
+			safeAreaInsetBottom: webApp.safeAreaInset?.bottom || 0,
+			contentSafeAreaInsetTop: webApp.contentSafeAreaInset?.top || 0,
+			contentSafeAreaInsetBottom: webApp.contentSafeAreaInset?.bottom || 0,
+			initData: webApp.initData,
+			user: webApp.initDataUnsafe?.user
+		};
+	}
+
+	/**
+	 * Get Telegram information from @tma.js SDK
+	 */
+	private getTelegramInfoFromTmaJs(): TelegramInfo | undefined {
+		const sdk = getTmaJsSdk();
+		if (!sdk) return undefined;
+
+		const viewport = getViewportFromTmaJs();
+		const themeParams = getThemeParamsFromTmaJs();
+		const platform = getTelegramPlatformFromTmaJs();
+		const initData = getTelegramInitDataFromTmaJs();
+
+		const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
+
+		return {
+			platform: (platform || 'unknown') as TelegramPlatform,
+			version: sdk.version || '0.0',
+			sdkSource: 'tma.js',
+			colorScheme: themeParams?.backgroundColor?.includes('#') ? 'dark' : 'light', // Simple heuristic
+			viewportHeight: viewport?.height || windowHeight,
+			viewportStableHeight: viewport?.stableHeight || windowHeight,
+			isExpanded: viewport?.isExpanded || false,
+			isClosingConfirmationEnabled: false, // Not available in @tma.js
+			headerColor: sdk.miniApp?.headerColor || themeParams?.backgroundColor || '#000000',
+			backgroundColor: sdk.miniApp?.backgroundColor || themeParams?.backgroundColor || '#ffffff',
+			safeAreaInsetTop: 0, // Not directly available in @tma.js
+			safeAreaInsetBottom: 0,
+			contentSafeAreaInsetTop: 0,
+			contentSafeAreaInsetBottom: 0,
+			initData: initData || undefined,
+			user: sdk.initData?.parsed?.user,
+			themeParams: themeParams || undefined
+		};
+	}
+
+	/**
+	 * Get screen information
+	 */
+	private getScreenInfo(): ScreenInfo {
+		if (typeof window === 'undefined') {
+			return { width: 0, height: 0, pixelRatio: 1 };
+		}
+
+		return {
+			width: window.innerWidth,
+			height: window.innerHeight,
+			pixelRatio: window.devicePixelRatio || 1
+		};
 	}
 
 	/**
@@ -207,6 +402,7 @@ export class PlatformDetector {
 			device: 'desktop',
 			domainMode: 'unknown',
 			isPWA: false,
+			isTWA: false,
 			isTelegram: false,
 			isNative: false,
 			isWeb: true,
@@ -217,8 +413,10 @@ export class PlatformDetector {
 			isMacOS: false,
 			isWindows: false,
 			isLinux: false,
+			isChromeOS: false,
 			userAgent: '',
-			shouldShowTMAWarning: false
+			shouldShowTMAWarning: false,
+			screen: { width: 0, height: 0, pixelRatio: 1 }
 		};
 	}
 

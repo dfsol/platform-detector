@@ -1,7 +1,7 @@
 {
   "name": "@dfsol/platform-detector",
-  "version": "0.0.1",
-  "description": "Universal platform detector for web, PWA, Telegram Mini Apps, and native mobile applications",
+  "version": "0.1.0",
+  "description": "Universal platform detector for web, PWA, TWA, Telegram Mini Apps, Capacitor.js, and native mobile applications with @tma.js SDK support",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -32,14 +32,21 @@
     "platform",
     "detector",
     "pwa",
+    "twa",
     "telegram",
     "tma",
+    "tma.js",
     "capacitor",
+    "capacitorjs",
     "mobile",
     "ios",
     "android",
+    "chromeos",
     "web",
-    "device-detection"
+    "device-detection",
+    "telegram-mini-app",
+    "trusted-web-activity",
+    "sdk"
   ],
   "author": "DFSOL",
   "license": "MIT",
@@ -52,10 +59,14 @@
     "access": "public"
   },
   "peerDependencies": {
-    "svelte": "^5.0.0"
+    "svelte": "^5.0.0",
+    "@tma.js/sdk": "^2.0.0 || ^3.0.0"
   },
   "peerDependenciesMeta": {
     "svelte": {
+      "optional": true
+    },
+    "@tma.js/sdk": {
       "optional": true
     }
   },
