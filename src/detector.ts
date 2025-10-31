@@ -197,7 +197,7 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Validate Telegram WebApp with strict checks
+	 * Validate Telegram WebApp with flexible checks for native app compatibility
 	 */
 	private validateTelegramWebApp(webApp: any): boolean {
 		// WebApp must exist and have a version
@@ -205,7 +205,7 @@ export class PlatformDetector {
 			return false;
 		}
 
-		// CRITICAL: Check if we have actual Telegram init data
+		// Check if we have actual Telegram init data
 		const hasInitData = !!(
 			webApp.initData ||
 			(webApp.initDataUnsafe && Object.keys(webApp.initDataUnsafe).length > 0)
@@ -217,8 +217,16 @@ export class PlatformDetector {
 		// Check for colorScheme
 		const hasColorScheme = !!webApp.colorScheme;
 
-		// Must have ALL these indicators
-		return hasInitData && hasPlatform && hasColorScheme;
+		// Native Telegram apps might not have initData immediately on launch
+		// Platform + colorScheme + version is sufficient for native app detection
+		// If initData is present, require all three indicators for highest confidence
+		if (hasInitData) {
+			return hasPlatform && hasColorScheme;
+		}
+
+		// Without initData, we need strong platform indicators
+		// This handles native Telegram app launches where initData loads asynchronously
+		return hasPlatform && hasColorScheme;
 	}
 
 	/**
