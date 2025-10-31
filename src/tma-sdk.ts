@@ -82,6 +82,7 @@ export function getTmaJsSdk(): TmaJsSdkInstance | null {
 
 /**
  * Check if running in Telegram Mini App via @tma.js SDK
+ * Flexible detection for both web and native Telegram apps
  */
 export function isTelegramViaTmaJs(): boolean {
 	if (!isTmaJsSdkAvailable()) return false;
@@ -89,7 +90,7 @@ export function isTelegramViaTmaJs(): boolean {
 	const sdk = getTmaJsSdk();
 	if (!sdk) return false;
 
-	// Check if we have init data (sign of real Telegram environment)
+	// Check if we have init data (strongest indicator of real Telegram environment)
 	if (sdk.initData) {
 		const rawData = typeof sdk.initData.raw === 'function'
 			? sdk.initData.raw()
@@ -100,8 +101,18 @@ export function isTelegramViaTmaJs(): boolean {
 		}
 	}
 
-	// Check if we have platform info
-	if (sdk.miniApp?.platform) {
+	// Check if we have platform info (valid for native apps where initData may load async)
+	if (sdk.miniApp?.platform && sdk.miniApp.platform !== 'unknown') {
+		return true;
+	}
+
+	// Check if we have viewport info (another strong indicator)
+	if (sdk.viewport && (sdk.viewport.height > 0 || sdk.viewport.stableHeight > 0)) {
+		return true;
+	}
+
+	// Check if we have theme params (available in native apps)
+	if (sdk.themeParams && Object.keys(sdk.themeParams).length > 0) {
 		return true;
 	}
 
