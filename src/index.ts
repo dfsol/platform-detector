@@ -28,6 +28,7 @@ export type {
 	OSType,
 	DeviceType,
 	DomainMode,
+	EnvironmentType,
 	PlatformDetectorOptions,
 	TMAAvailability,
 	CapacitorInfo,

@@ -4,6 +4,7 @@ import type {
 	OSType,
 	DeviceType,
 	DomainMode,
+	EnvironmentType,
 	PlatformDetectorOptions,
 	TMAAvailability,
 	CapacitorInfo,
@@ -47,7 +48,8 @@ export class PlatformDetector {
 		const os = this.detectOS(userAgent);
 		const device = this.detectDevice(userAgent, os);
 		const domainMode = this.detectDomainMode(hostname);
-		const isNative = this.detectNative();
+		const environment = this.detectEnvironment();
+		const isNativeCapacitor = this.detectNative();
 		const isTelegram = this.detectTelegram();
 		const isPWA = this.detectPWA();
 		const isTWA = this.detectTWA();
@@ -56,9 +58,12 @@ export class PlatformDetector {
 		const capacitor = this.getCapacitorInfo();
 		const telegram = this.getTelegramInfo();
 
+		// Determine if truly native (Capacitor on native platform)
+		const isNative = isNativeCapacitor && capacitor?.isNativePlatform === true;
+
 		// Determine primary platform type
 		let type: PlatformType = 'web';
-		if (isNative && capacitor?.isNativePlatform) type = 'native';
+		if (isNative) type = 'native';
 		else if (isTelegram) type = 'tma';
 		else if (isTWA) type = 'twa';
 		else if (isPWA) type = 'pwa';
@@ -69,18 +74,36 @@ export class PlatformDetector {
 		// Get screen info
 		const screen = this.getScreenInfo();
 
+		// Determine device type considering Telegram platform
+		let finalDevice = device;
+		let finalIsMobile = device === 'mobile' || device === 'tablet';
+
+		if (isTelegram && telegram?.platform) {
+			// For TMA, trust Telegram's platform info
+			const tgPlatform = telegram.platform;
+			if (tgPlatform === 'ios' || tgPlatform === 'android' || tgPlatform === 'android_x') {
+				finalDevice = 'mobile';
+				finalIsMobile = true;
+			} else if (tgPlatform === 'macos' || tgPlatform === 'tdesktop') {
+				finalDevice = 'desktop';
+				finalIsMobile = false;
+			}
+			// weba, webk, web - keep device detection from user agent
+		}
+
 		const info: PlatformInfo = {
 			type,
 			os,
-			device,
+			device: finalDevice,
 			domainMode,
+			environment,
 			isPWA,
 			isTWA,
 			isTelegram,
 			isNative,
-			isWeb: !isNative && !isTelegram,
-			isMobile: device === 'mobile' || device === 'tablet',
-			isDesktop: device === 'desktop',
+			isWeb: !isNative,
+			isMobile: finalIsMobile,
+			isDesktop: !finalIsMobile,
 			isIOS: os === 'ios',
 			isAndroid: os === 'android',
 			isMacOS: os === 'macos',
@@ -145,6 +168,47 @@ export class PlatformDetector {
 	private detectDomainMode(hostname: string): DomainMode {
 		if (hostname.startsWith('app.')) return 'app';
 		if (hostname.startsWith('tg.')) return 'tma';
+		return 'unknown';
+	}
+
+	/**
+	 * Detect environment (development vs production)
+	 */
+	private detectEnvironment(): EnvironmentType {
+		// Use override if provided
+		if (this.options.environment) {
+			return this.options.environment;
+		}
+
+		if (typeof window === 'undefined') return 'unknown';
+
+		const hostname = this.options.hostname || window.location.hostname;
+
+		// Development indicators
+		if (
+			hostname === 'localhost' ||
+			hostname === '127.0.0.1' ||
+			hostname.startsWith('192.168.') ||
+			hostname.startsWith('10.') ||
+			hostname.includes('dev.') ||
+			hostname.includes('staging.') ||
+			hostname.includes('.local')
+		) {
+			return 'development';
+		}
+
+		// Production indicators
+		if (
+			hostname.includes('.com') ||
+			hostname.includes('.org') ||
+			hostname.includes('.net') ||
+			hostname.includes('.io') ||
+			hostname.includes('.app') ||
+			hostname.includes('.cc')
+		) {
+			return 'production';
+		}
+
 		return 'unknown';
 	}
 
@@ -409,6 +473,7 @@ export class PlatformDetector {
 			os: 'unknown',
 			device: 'desktop',
 			domainMode: 'unknown',
+			environment: this.options.environment || 'unknown',
 			isPWA: false,
 			isTWA: false,
 			isTelegram: false,

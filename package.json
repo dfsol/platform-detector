@@ -1,6 +1,6 @@
 {
   "name": "@dfsol/platform-detector",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Universal platform detector for web, PWA, TWA, Telegram Mini Apps, Capacitor.js, and native mobile applications with @tma.js SDK support",
   "type": "module",
   "main": "./dist/index.js",

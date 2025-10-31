@@ -19,6 +19,11 @@ export type DeviceType = 'mobile' | 'tablet' | 'desktop';
 export type DomainMode = 'app' | 'tma' | 'unknown';
 
 /**
+ * Environment type
+ */
+export type EnvironmentType = 'development' | 'production' | 'unknown';
+
+/**
  * Telegram-specific platform identifiers
  */
 export type TelegramPlatform =
@@ -154,6 +159,9 @@ export interface PlatformInfo {
 	/** Domain mode (app.* or tg.*) */
 	domainMode: DomainMode;
 
+	/** Environment type (development or production) */
+	environment: EnvironmentType;
+
 	/** Is running as PWA (installed) */
 	isPWA: boolean;
 
@@ -224,6 +232,9 @@ export interface PlatformDetectorOptions {
 
 	/** Telegram web app object (for TMA detection) */
 	telegramWebApp?: any;
+
+	/** Environment override (for testing) */
+	environment?: EnvironmentType;
 }
 
 /**
