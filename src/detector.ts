@@ -35,7 +35,7 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Detect platform information
+	 * Detect platform information with priority-based detection
 	 */
 	detect(): PlatformInfo {
 		if (typeof window === 'undefined') {
@@ -45,28 +45,34 @@ export class PlatformDetector {
 		const userAgent = this.options.userAgent || navigator.userAgent;
 		const hostname = this.options.hostname || window.location.hostname;
 
+		// Basic detection
 		const os = this.detectOS(userAgent);
 		const device = this.detectDevice(userAgent, os);
 		const domainMode = this.detectDomainMode(hostname);
 		const environment = this.detectEnvironment();
+
+		// Priority-based platform detection
+		// 1. Check for native wrappers first (most specific)
 		const isNativeCapacitor = this.detectNative();
-		const isTelegram = this.detectTelegram();
-		const isPWA = this.detectPWA();
-		const isTWA = this.detectTWA();
-
-		// Get detailed info from native APIs
 		const capacitor = this.getCapacitorInfo();
-		const telegram = this.getTelegramInfo();
-
-		// Determine if truly native (Capacitor on native platform)
 		const isNative = isNativeCapacitor && capacitor?.isNativePlatform === true;
 
-		// Determine primary platform type
+		// 2. Check for Telegram Mini App
+		const isTelegram = this.detectTelegram();
+		const telegram = this.getTelegramInfo();
+
+		// 3. Check for PWA
+		const isPWA = this.detectPWA();
+
+		// Determine primary platform type based on priority
 		let type: PlatformType = 'web';
-		if (isNative) type = 'native';
-		else if (isTelegram) type = 'tma';
-		else if (isTWA) type = 'twa';
-		else if (isPWA) type = 'pwa';
+		if (isNative) {
+			type = 'native';
+		} else if (isTelegram) {
+			type = 'tma';
+		} else if (isPWA) {
+			type = 'pwa';
+		}
 
 		// Check if TMA warning should be shown
 		const shouldShowTMAWarning = domainMode === 'tma' && !isTelegram;
@@ -74,42 +80,50 @@ export class PlatformDetector {
 		// Get screen info
 		const screen = this.getScreenInfo();
 
-		// Determine device type considering Telegram platform
+		// Determine device type considering platform-specific info
 		let finalDevice = device;
 		let finalIsMobile = device === 'mobile' || device === 'tablet';
+		let finalOS = os;
 
+		// Adjust based on Telegram platform info
 		if (isTelegram && telegram?.platform) {
-			// For TMA, trust Telegram's platform info
 			const tgPlatform = telegram.platform;
+
+			// Mobile platforms
 			if (tgPlatform === 'ios' || tgPlatform === 'android' || tgPlatform === 'android_x') {
-				finalDevice = 'mobile';
+				finalDevice = device === 'tablet' ? 'tablet' : 'mobile';
 				finalIsMobile = true;
-			} else if (tgPlatform === 'macos' || tgPlatform === 'tdesktop') {
+				// Correct OS if needed
+				if (tgPlatform === 'ios' && os !== 'ios') finalOS = 'ios';
+				if ((tgPlatform === 'android' || tgPlatform === 'android_x') && os !== 'android') finalOS = 'android';
+			}
+			// Desktop platforms
+			else if (tgPlatform === 'macos' || tgPlatform === 'tdesktop') {
 				finalDevice = 'desktop';
 				finalIsMobile = false;
+				if (tgPlatform === 'macos' && os !== 'macos') finalOS = 'macos';
 			}
-			// weba, webk, web - keep device detection from user agent
+			// Web platforms - keep original detection
 		}
 
 		const info: PlatformInfo = {
 			type,
-			os,
+			os: finalOS,
 			device: finalDevice,
 			domainMode,
 			environment,
 			isPWA,
-			isTWA,
 			isTelegram,
 			isNative,
-			isWeb: !isNative,
+			isWeb: !isNative && !isTelegram,
 			isMobile: finalIsMobile,
 			isDesktop: !finalIsMobile,
-			isIOS: os === 'ios',
-			isAndroid: os === 'android',
-			isMacOS: os === 'macos',
-			isWindows: os === 'windows',
-			isLinux: os === 'linux',
-			isChromeOS: os === 'chromeos',
+			isIOS: finalOS === 'ios',
+			isAndroid: finalOS === 'android',
+			isMacOS: finalOS === 'macos',
+			isWindows: finalOS === 'windows',
+			isLinux: finalOS === 'linux',
+			isChromeOS: finalOS === 'chromeos',
 			userAgent,
 			shouldShowTMAWarning,
 			screen,
@@ -125,13 +139,20 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Detect operating system from user agent
+	 * Detect operating system from user agent with enhanced iPadOS detection
 	 */
 	private detectOS(userAgent: string): OSType {
 		const ua = userAgent.toLowerCase();
+		const platform = typeof window !== 'undefined' ? window.navigator.platform : '';
 
-		// Mobile OS detection (highest priority)
+		// iOS detection (including iPadOS 13+)
 		if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+		// iPadOS 13+ detection (reports as Mac but has touch support)
+		if (platform === 'MacIntel' && typeof window !== 'undefined' && navigator.maxTouchPoints > 1) {
+			return 'ios';
+		}
+
+		// Android detection
 		if (/android/.test(ua)) return 'android';
 
 		// Desktop OS detection
@@ -144,17 +165,36 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Detect device type from user agent and OS
+	 * Detect device type from user agent and OS with enhanced tablet detection
 	 */
 	private detectDevice(userAgent: string, os: OSType): DeviceType {
 		const ua = userAgent.toLowerCase();
+		const width = typeof window !== 'undefined' ? window.innerWidth : 0;
 
-		// Mobile OS = mobile device
-		if (os === 'ios' || os === 'android') {
-			// Check for tablet
-			if (/ipad/.test(ua) || (/android/.test(ua) && !/mobile/.test(ua))) {
+		// iOS device detection
+		if (os === 'ios') {
+			// iPad detection (including iPadOS 13+)
+			if (/ipad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
 				return 'tablet';
 			}
+			return 'mobile';
+		}
+
+		// Android device detection
+		if (os === 'android') {
+			// Android tablet detection - tablets typically don't have 'mobile' in UA
+			if (!/mobile/.test(ua) && /android/.test(ua)) {
+				return 'tablet';
+			}
+			// Additional check for specific tablet models
+			if (/tablet|tab\d+/.test(ua)) {
+				return 'tablet';
+			}
+			return 'mobile';
+		}
+
+		// Check screen width as additional hint for ambiguous cases
+		if (width > 0 && width <= 768 && /mobi/.test(ua)) {
 			return 'mobile';
 		}
 
@@ -294,55 +334,40 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Detect if running as PWA (installed)
+	 * Detect if running as PWA (installed) with comprehensive checks
 	 */
 	private detectPWA(): boolean {
 		if (typeof window === 'undefined') return false;
 
-		// Check display mode
-		if (window.matchMedia('(display-mode: standalone)').matches) {
-			return true;
-		}
-
-		// Check minimal-ui mode
-		if (window.matchMedia('(display-mode: minimal-ui)').matches) {
-			return true;
-		}
-
-		// iOS Safari standalone mode
-		if ('standalone' in navigator && (navigator as any).standalone) {
-			return true;
-		}
-
-		return false;
-	}
-
-	/**
-	 * Detect if running as TWA (Trusted Web Activity on Android)
-	 */
-	private detectTWA(): boolean {
-		if (typeof window === 'undefined') return false;
-
-		// TWA is identified by Android app referrer
-		if (document.referrer.includes('android-app://')) {
-			return true;
-		}
-
-		// Check for TWA-specific display mode with Android UA
-		const userAgent = navigator.userAgent.toLowerCase();
-		if (
-			userAgent.includes('android') &&
-			window.matchMedia('(display-mode: standalone)').matches
-		) {
-			// Could be TWA or PWA, check for TWA-specific indicators
-			// TWA doesn't have Service Worker registered in some cases
-			if (!navigator.serviceWorker) {
+		// Check various display modes
+		const displayModes = ['standalone', 'fullscreen', 'minimal-ui'];
+		for (const mode of displayModes) {
+			if (window.matchMedia(`(display-mode: ${mode})`).matches) {
 				return true;
 			}
 		}
 
+		// iOS Safari standalone mode
+		if ('standalone' in navigator && (navigator as any).standalone === true) {
+			return true;
+		}
+
+		// Check for window-controls-overlay (Desktop PWA)
+		if (window.matchMedia('(display-mode: window-controls-overlay)').matches) {
+			return true;
+		}
+
+		// Additional check for installed state via beforeinstallprompt
+		// If the event doesn't fire, the app might already be installed
+		if (typeof window !== 'undefined' && 'BeforeInstallPromptEvent' in window) {
+			// This is a heuristic - the app supports PWA installation
+			// Combined with display mode checks above
+			return false;
+		}
+
 		return false;
 	}
+
 
 	/**
 	 * Get detailed Capacitor information from native API
@@ -475,7 +500,6 @@ export class PlatformDetector {
 			domainMode: 'unknown',
 			environment: this.options.environment || 'unknown',
 			isPWA: false,
-			isTWA: false,
 			isTelegram: false,
 			isNative: false,
 			isWeb: true,
@@ -494,7 +518,7 @@ export class PlatformDetector {
 	}
 
 	/**
-	 * Check TMA availability and generate deep link
+	 * Check Telegram Mini App (TMA) availability and generate deep link
 	 */
 	checkTMAAvailability(botUsername: string): TMAAvailability {
 		if (this.detectTelegram()) {
@@ -535,6 +559,122 @@ export class PlatformDetector {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Get browser type (Chrome, Safari, Firefox, Edge, etc.)
+	 */
+	getBrowserType(): string {
+		if (typeof window === 'undefined') return 'unknown';
+
+		const ua = navigator.userAgent.toLowerCase();
+
+		// Check Edge first (includes "Edg/")
+		if (/edg/i.test(ua)) return 'Edge';
+
+		// Firefox (includes fxios for iOS)
+		if (/firefox|fxios/i.test(ua)) return 'Firefox';
+
+		// Opera
+		if (/opr|opera/i.test(ua)) return 'Opera';
+
+		// Chrome (exclude Opera, Chromium, Edge)
+		if (/chrome|crios/i.test(ua) && !/opr|opera|chromium|edg/i.test(ua)) {
+			return 'Chrome';
+		}
+
+		// Safari (exclude Chrome and other browsers)
+		if (/safari/i.test(ua) && !/chromium|edg|chrome|crios|firefox/i.test(ua)) {
+			return 'Safari';
+		}
+
+		// Samsung Internet
+		if (/samsungbrowser/i.test(ua)) return 'Samsung Internet';
+
+		// UC Browser
+		if (/ucbrowser/i.test(ua)) return 'UC Browser';
+
+		return 'unknown';
+	}
+
+	/**
+	 * Get display mode for PWA
+	 */
+	getDisplayMode(): string {
+		if (typeof window === 'undefined') return 'browser';
+
+		const modes = ['fullscreen', 'standalone', 'minimal-ui', 'window-controls-overlay'];
+
+		for (const mode of modes) {
+			if (window.matchMedia(`(display-mode: ${mode})`).matches) {
+				return mode;
+			}
+		}
+
+		// iOS specific
+		if ('standalone' in navigator && (navigator as any).standalone) {
+			return 'standalone-ios';
+		}
+
+		return 'browser';
+	}
+
+	/**
+	 * Check if the app can be installed as PWA
+	 */
+	isPWAInstallable(): boolean {
+		if (typeof window === 'undefined') return false;
+
+		// Check if already installed
+		if (this.detectPWA()) return false;
+
+		// Check for manifest
+		const hasManifest = document.querySelector('link[rel="manifest"]') !== null;
+
+		// Check for service worker support
+		const hasServiceWorker = 'serviceWorker' in navigator;
+
+		// Check for HTTPS or localhost
+		const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
+
+		return hasManifest && hasServiceWorker && isSecure;
+	}
+
+	/**
+	 * Monitor for platform changes
+	 */
+	watchForChanges(callback: (info: PlatformInfo) => void): () => void {
+		if (typeof window === 'undefined') {
+			return () => {};
+		}
+
+		const checkAndNotify = () => {
+			const newInfo = this.detect();
+			callback(newInfo);
+		};
+
+		// Watch for display mode changes (PWA installation/uninstallation)
+		const displayModeQuery = window.matchMedia('(display-mode: standalone)');
+		displayModeQuery.addEventListener('change', checkAndNotify);
+
+		// Watch for online/offline changes
+		window.addEventListener('online', checkAndNotify);
+		window.addEventListener('offline', checkAndNotify);
+
+		// Watch for Telegram viewport changes if available
+		if ((window as any).Telegram?.WebApp) {
+			(window as any).Telegram.WebApp.onEvent('viewportChanged', checkAndNotify);
+		}
+
+		// Return cleanup function
+		return () => {
+			displayModeQuery.removeEventListener('change', checkAndNotify);
+			window.removeEventListener('online', checkAndNotify);
+			window.removeEventListener('offline', checkAndNotify);
+			if ((window as any).Telegram?.WebApp) {
+				(window as any).Telegram.WebApp.offEvent('viewportChanged', checkAndNotify);
+			}
+		};
 	}
 }
 
