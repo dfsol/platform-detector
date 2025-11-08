@@ -227,6 +227,25 @@ export interface ScreenInfo {
 }
 
 /**
+ * Detection confidence score
+ */
+export interface DetectionConfidence {
+    /** Overall confidence (0-100) */
+    overall: number;
+    /** OS detection confidence */
+    os: number;
+    /** Device detection confidence */
+    device: number;
+    /** Browser detection confidence */
+    browser: number;
+}
+
+/**
+ * Browser family types
+ */
+export type BrowserFamily = "chromium" | "webkit" | "gecko" | "unknown";
+
+/**
  * Complete platform information
  */
 export interface PlatformInfo {
@@ -235,6 +254,9 @@ export interface PlatformInfo {
 
     /** Operating system */
     os: OSType;
+
+    /** Operating system version (if detectable) */
+    osVersion?: string;
 
     /** Device form factor */
     device: DeviceType;
@@ -290,6 +312,18 @@ export interface PlatformInfo {
     /** Screen information */
     screen: ScreenInfo;
 
+    /** Browser family (Chromium, WebKit, Gecko) */
+    browserFamily?: BrowserFamily;
+
+    /** CPU architecture (if detectable) */
+    architecture?: string;
+
+    /** Device model name (if detectable) */
+    deviceModel?: string;
+
+    /** Detection confidence scores */
+    confidence?: DetectionConfidence;
+
     /** Detailed Capacitor information (if available) */
     capacitor?: CapacitorInfo;
 
@@ -315,6 +349,15 @@ export interface PlatformDetectorOptions {
 
     /** Environment override (for testing) */
     environment?: EnvironmentType;
+
+    /** Enable Client Hints API (async detection) */
+    useClientHints?: boolean;
+
+    /** Enable feature-based detection */
+    useFeatureDetection?: boolean;
+
+    /** Cache detection results (milliseconds, default: 5000) */
+    cacheTTL?: number;
 }
 
 /**

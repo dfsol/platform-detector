@@ -11,7 +11,9 @@ import type {
 	TelegramInfo,
 	TelegramPlatform,
 	TelegramSDKSource,
-	ScreenInfo
+	ScreenInfo,
+	BrowserFamily,
+	DetectionConfidence
 } from './types.js';
 import { getTelegramWebApp } from './telegram-sdk.js';
 import {
@@ -23,21 +25,54 @@ import {
 	getThemeParamsFromTmaJs,
 	getTmaJsSdk
 } from './tma-sdk.js';
+import { ClientHintsDetector } from './client-hints.js';
+import { FeatureDetector } from './feature-detector.js';
 
 /**
  * Detects the current platform and environment
  */
 export class PlatformDetector {
 	private options: PlatformDetectorOptions;
+	private cache?: PlatformInfo;
+	private cacheTimestamp?: number;
 
 	constructor(options: PlatformDetectorOptions = {}) {
-		this.options = options;
+		this.options = {
+			useClientHints: false,
+			useFeatureDetection: true,
+			cacheTTL: 5000, // 5 seconds default
+			...options
+		};
 	}
 
 	/**
 	 * Detect platform information with priority-based detection
+	 * Supports caching to improve performance
 	 */
 	detect(): PlatformInfo {
+		// Check cache
+		if (this.cache && this.cacheTimestamp) {
+			const now = Date.now();
+			const cacheTTL = this.options.cacheTTL || 5000;
+			if (now - this.cacheTimestamp < cacheTTL) {
+				return this.cache;
+			}
+		}
+
+		// Perform detection
+		const result = this.performDetection();
+
+		// Update cache
+		this.cache = result;
+		this.cacheTimestamp = Date.now();
+
+		return result;
+	}
+
+	/**
+	 * Perform actual detection logic
+	 */
+	private performDetection(): PlatformInfo {
 		if (typeof window === 'undefined') {
 			return this.createServerSideInfo();
 		}
@@ -106,6 +141,16 @@ export class PlatformDetector {
 			// Web platforms - keep original detection
 		}
 
+		// Browser family detection
+		const browserFamily = this.detectBrowserFamily(userAgent);
+
+		// Calculate confidence
+		const confidence = this.calculateConfidence(userAgent, {
+			os: finalOS,
+			device: finalDevice,
+			browserFamily
+		});
+
 		const info: PlatformInfo = {
 			type,
 			os: finalOS,
@@ -127,6 +172,8 @@ export class PlatformDetector {
 			userAgent,
 			shouldShowTMAWarning,
 			screen,
+			browserFamily,
+			confidence,
 			capacitor,
 			telegram
 		};
@@ -335,34 +382,34 @@ export class PlatformDetector {
 
 	/**
 	 * Detect if running as PWA (installed) with comprehensive checks
+	 * Updated for 2025 standards including window-controls-overlay
 	 */
 	private detectPWA(): boolean {
 		if (typeof window === 'undefined') return false;
 
-		// Check various display modes
-		const displayModes = ['standalone', 'fullscreen', 'minimal-ui'];
+		// Check various display modes (including 2025 additions)
+		const displayModes = [
+			'standalone',
+			'fullscreen',
+			'minimal-ui',
+			'window-controls-overlay' // Already included - Chrome 2025 desktop PWA
+		];
+
 		for (const mode of displayModes) {
 			if (window.matchMedia(`(display-mode: ${mode})`).matches) {
 				return true;
 			}
 		}
 
-		// iOS Safari standalone mode
+		// iOS Safari standalone mode (pre-iOS 15 compatibility)
 		if ('standalone' in navigator && (navigator as any).standalone === true) {
 			return true;
 		}
 
-		// Check for window-controls-overlay (Desktop PWA)
-		if (window.matchMedia('(display-mode: window-controls-overlay)').matches) {
+		// NEW: Window Controls Overlay API check (2025)
+		// For desktop PWAs with custom title bar
+		if ((navigator as any).windowControlsOverlay?.visible) {
 			return true;
-		}
-
-		// Additional check for installed state via beforeinstallprompt
-		// If the event doesn't fire, the app might already be installed
-		if (typeof window !== 'undefined' && 'BeforeInstallPromptEvent' in window) {
-			// This is a heuristic - the app supports PWA installation
-			// Combined with display mode checks above
-			return false;
 		}
 
 		return false;
@@ -598,6 +645,84 @@ export class PlatformDetector {
 	}
 
 	/**
+	 * Detect browser family (rendering engine)
+	 */
+	private detectBrowserFamily(userAgent: string): BrowserFamily {
+		const ua = userAgent.toLowerCase();
+
+		// Chromium-based (Chrome, Edge, Opera, Samsung Internet)
+		if (
+			(window as any).chrome !== undefined ||
+			/chrome|crios|edg|opr|samsungbrowser/i.test(ua)
+		) {
+			return 'chromium';
+		}
+
+		// WebKit (Safari)
+		if (/webkit/i.test(ua) && !/chrome|crios/i.test(ua)) {
+			return 'webkit';
+		}
+
+		// Gecko (Firefox)
+		if (/gecko/i.test(ua) && !/webkit/i.test(ua)) {
+			return 'gecko';
+		}
+
+		return 'unknown';
+	}
+
+	/**
+	 * Calculate detection confidence score
+	 */
+	private calculateConfidence(
+		userAgent: string,
+		detected: { os: OSType; device: DeviceType; browserFamily: BrowserFamily }
+	): DetectionConfidence {
+		let overall = 100;
+		let osConfidence = 100;
+		let deviceConfidence = 100;
+		let browserConfidence = 100;
+
+		// Reduce confidence for frozen/reduced user agents
+		if (ClientHintsDetector.isFrozenUA(userAgent)) {
+			overall -= 20;
+			osConfidence -= 30;
+			deviceConfidence -= 20;
+		}
+
+		// Reduce confidence if Client Hints not used but available
+		if (ClientHintsDetector.isSupported() && !this.options.useClientHints) {
+			overall -= 10;
+			osConfidence -= 15;
+		}
+
+		// Reduce confidence for unknown values
+		if (detected.os === 'unknown') {
+			overall -= 25;
+			osConfidence = 30;
+		}
+
+		if (detected.browserFamily === 'unknown') {
+			overall -= 10;
+			browserConfidence -= 20;
+		}
+
+		// Feature detection increases confidence
+		if (this.options.useFeatureDetection) {
+			overall += 5;
+			deviceConfidence += 10;
+		}
+
+		// Ensure values are within 0-100 range
+		return {
+			overall: Math.max(0, Math.min(100, overall)),
+			os: Math.max(0, Math.min(100, osConfidence)),
+			device: Math.max(0, Math.min(100, deviceConfidence)),
+			browser: Math.max(0, Math.min(100, browserConfidence))
+		};
+	}
+
+	/**
 	 * Get display mode for PWA
 	 */
 	getDisplayMode(): string {
@@ -675,6 +800,66 @@ export class PlatformDetector {
 				(window as any).Telegram.WebApp.offEvent('viewportChanged', checkAndNotify);
 			}
 		};
+	}
+
+	/**
+	 * Async detection with Client Hints support
+	 * Provides enhanced accuracy for OS version and device info on Chrome/Edge
+	 */
+	async detectAsync(): Promise<PlatformInfo> {
+		// Get base detection
+		const baseInfo = this.detect();
+
+		// If Client Hints not supported or disabled, return base detection
+		if (!ClientHintsDetector.isSupported() || this.options.useClientHints === false) {
+			return baseInfo;
+		}
+
+		try {
+			// Get Client Hints data
+			const hints = await ClientHintsDetector.detect();
+			if (!hints) {
+				return baseInfo;
+			}
+
+			// Merge with base detection
+			return {
+				...baseInfo,
+				// Override with Client Hints data if available
+				os: hints.os || baseInfo.os,
+				osVersion: hints.osVersion || baseInfo.osVersion,
+				device: hints.device || baseInfo.device,
+				architecture: hints.architecture || baseInfo.architecture,
+				deviceModel: hints.model || baseInfo.deviceModel,
+				// Update boolean flags based on new OS
+				isIOS: (hints.os || baseInfo.os) === 'ios',
+				isAndroid: (hints.os || baseInfo.os) === 'android',
+				isMacOS: (hints.os || baseInfo.os) === 'macos',
+				isWindows: (hints.os || baseInfo.os) === 'windows',
+				isLinux: (hints.os || baseInfo.os) === 'linux',
+				isChromeOS: (hints.os || baseInfo.os) === 'chromeos',
+				// Update mobile/desktop flags
+				isMobile: hints.device === 'mobile' || hints.device === 'tablet'
+					? true
+					: baseInfo.isMobile,
+				isDesktop: hints.device === 'desktop'
+					? true
+					: baseInfo.isDesktop
+			};
+		} catch (error) {
+			if (this.options.debug) {
+				console.error('[PlatformDetector] Client Hints detection failed:', error);
+			}
+			return baseInfo;
+		}
+	}
+
+	/**
+	 * Clear detection cache
+	 */
+	clearCache(): void {
+		this.cache = undefined;
+		this.cacheTimestamp = undefined;
 	}
 }
 

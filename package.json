@@ -1,7 +1,7 @@
 {
   "name": "@dfsol/platform-detector",
-  "version": "0.3.0",
-  "description": "Universal platform detector for web, PWA, Telegram Mini Apps, Capacitor.js, and native mobile applications with @tma.js SDK support",
+  "version": "0.4.0",
+  "description": "Universal platform detector for web, PWA, Telegram Mini Apps, and native mobile applications with Client Hints API, feature detection, and enhanced accuracy",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -24,6 +24,10 @@
   "scripts": {
     "build": "tsc && mkdir -p dist/svelte && cp src/svelte/*.svelte dist/svelte/ && cp src/svelte/*.ts dist/svelte/",
     "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
     "prepare": "bun run build",
     "prepublishOnly": "bun run build",
     "postinstall": "bun run build || true"
@@ -46,7 +50,12 @@
     "device-detection",
     "telegram-mini-app",
     "trusted-web-activity",
-    "sdk"
+    "sdk",
+    "client-hints",
+    "user-agent-client-hints",
+    "feature-detection",
+    "browser-detection",
+    "os-detection"
   ],
   "author": "DFSOL",
   "license": "MIT",
@@ -71,7 +80,10 @@
     }
   },
   "devDependencies": {
+    "@vitest/ui": "^4.0.8",
+    "happy-dom": "^20.0.10",
     "svelte": "^5.39.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.8"
   }
 }

@@ -10,9 +10,19 @@ export {
     detectPlatform,
 } from "./detector.js";
 
+// Client Hints and Feature Detection exports
+export { ClientHintsDetector } from "./client-hints.js";
+export { FeatureDetector } from "./feature-detector.js";
+export type { ClientHintsData, ClientHintsResult } from "./client-hints.js";
+export type { DeviceFeatures, FeatureDetectionResult } from "./feature-detector.js";
+
 // Internal imports for utility functions
 import { createPlatformDetector } from "./detector.js";
-import type { PlatformInfo, PlatformType } from "./types.js";
+import type {
+    PlatformInfo,
+    PlatformType,
+    PlatformDetectorOptions as PlatformDetectorOptionsType,
+} from "./types.js";
 
 export {
     loadTelegramSDK,
@@ -53,6 +63,8 @@ export type {
     TelegramInitDataValidationErrorCode,
     TelegramWebAppUser,
     TelegramWebAppChat,
+    BrowserFamily,
+    DetectionConfidence,
 } from "./types.js";
 
 export type { TmaJsSdkInstance } from "./tma-sdk.js";
@@ -156,4 +168,25 @@ export function watchPlatformChanges(
 ): () => void {
     const detector = createPlatformDetector();
     return detector.watchForChanges(callback);
+}
+
+/**
+ * Async platform detection with Client Hints support
+ * Provides enhanced accuracy for OS version and device info on Chrome/Edge
+ *
+ * @param options - Detection options
+ * @returns Promise resolving to platform information
+ *
+ * @example
+ * ```typescript
+ * const platform = await detectPlatformAsync({ useClientHints: true });
+ * console.log('OS:', platform.os, platform.osVersion);
+ * console.log('Device:', platform.device);
+ * ```
+ */
+export async function detectPlatformAsync(
+    options?: PlatformDetectorOptionsType,
+): Promise<PlatformInfo> {
+    const detector = createPlatformDetector(options);
+    return detector.detectAsync();
 }
